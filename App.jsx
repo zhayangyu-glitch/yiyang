@@ -473,6 +473,11 @@ export default function TarotExperience() {
   };
 
   const handleMouseMove = (e) => { pointerRef.current = (e.clientX / window.innerWidth) * 2 - 1; };
+  const handleTouchMove = (e) => {
+    if (e.touches && e.touches.length > 0) {
+      pointerRef.current = (e.touches[0].clientX / window.innerWidth) * 2 - 1;
+    }
+  };
 
   const triggerManualInteract = () => {
     if (isCardRevealed && !isScratchFinished) {
@@ -546,126 +551,170 @@ export default function TarotExperience() {
 
   useEffect(() => {
     if (!isSdkLoaded) return;
-    const WinHands = window.Hands; const WinCamera = window.Camera;
-    if (!WinHands || !WinCamera) return;
 
-    const hands = new WinHands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
-    
-    hands.setOptions({ 
-      maxNumHands: 1, 
-      modelComplexity: 1, 
-      minDetectionConfidence: 0.45, 
-      minTrackingConfidence: 0.45 
-    });
+    let cancel = false;
 
-    hands.onResults((results) => {
-      if (!canvasRef.current || !videoRef.current || !results || videoRef.current.videoWidth === 0) return;
-      const ctx = canvasRef.current.getContext('2d'); ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      const currentTime = performance.now();
+    const runCamera = async () => {
+      const WinHands = window.Hands;
+      const WinCamera = window.Camera;
+      if (!WinHands || !WinCamera) return;
 
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        const landmarks = results.multiHandLandmarks[0];
-        const isFingerExtended = (tipIdx, mcpIdx) => landmarks[tipIdx].y < landmarks[mcpIdx].y - 0.02;
+      const hands = new WinHands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.45,
+        minTrackingConfidence: 0.45
+      });
 
-        const indexExtended  = isFingerExtended(8, 5);   
-        const middleExtended = isFingerExtended(12, 9);  
-        const ringExtended   = isFingerExtended(16, 13); 
-        const pinkyExtended  = isFingerExtended(20, 17); 
-        const isFistState = !indexExtended && !middleExtended && !ringExtended && !pinkyExtended;
+      hands.onResults((results) => {
+        if (cancel) return;
+        if (!canvasRef.current || !videoRef.current || !results || videoRef.current.videoWidth === 0) return;
+        const ctx = canvasRef.current.getContext('2d'); ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        const currentTime = performance.now();
 
-        // 🎯 核心最佳化：使用「食指尖 (Index Tip)」計算 Y 軸加速度
-        const currentFingerY = landmarks[8].y; 
-        const deltaFingerY = currentFingerY - lastFingerYRef.current; // Y 向下增大
-        lastFingerYRef.current = currentFingerY;
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+          const landmarks = results.multiHandLandmarks[0];
+          const isFingerExtended = (tipIdx, mcpIdx) => landmarks[tipIdx].y < landmarks[mcpIdx].y - 0.02;
 
-        pointerRef.current = pointerRef.current * 0.6 + (-(landmarks[8].x - 0.5) * 2) * 0.4; 
+          const indexExtended = isFingerExtended(8, 5);
+          const middleExtended = isFingerExtended(12, 9);
+          const ringExtended = isFingerExtended(16, 13);
+          const pinkyExtended = isFingerExtended(20, 17);
+          const isFistState = !indexExtended && !middleExtended && !ringExtended && !pinkyExtended;
 
-        let rawDetected = GESTURES.CHAOS; 
-        if (indexExtended && middleExtended && ringExtended && pinkyExtended) {
-          rawDetected = GESTURES.FIVE_FINGERS;
-        } else if (indexExtended && middleExtended && !ringExtended && !pinkyExtended) {
-          rawDetected = GESTURES.TWO_FINGERS_SCRATCH; 
-        } else if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
-          rawDetected = GESTURES.INDEX_SINGLE;
-        } else if (isFistState) {
-          rawDetected = GESTURES.FIST; 
-        }
+          const currentFingerY = landmarks[8].y;
+          const deltaFingerY = currentFingerY - lastFingerYRef.current;
+          lastFingerYRef.current = currentFingerY;
 
-        if (rawDetected === GESTURES.TWO_FINGERS_SCRATCH) scratchLockExpiryRef.current = currentTime + 500; 
-        if (currentTime < scratchLockExpiryRef.current && globalGestureRef.current === GESTURES.TWO_FINGERS_SCRATCH) rawDetected = GESTURES.TWO_FINGERS_SCRATCH;
+          pointerRef.current = pointerRef.current * 0.6 + (-(landmarks[8].x - 0.5) * 2) * 0.4;
 
-        gestureHistory.current.push(rawDetected); 
-        if (gestureHistory.current.length > 12) gestureHistory.current.shift();
+          let rawDetected = GESTURES.CHAOS;
+          if (indexExtended && middleExtended && ringExtended && pinkyExtended) {
+            rawDetected = GESTURES.FIVE_FINGERS;
+          } else if (indexExtended && middleExtended && !ringExtended && !pinkyExtended) {
+            rawDetected = GESTURES.TWO_FINGERS_SCRATCH;
+          } else if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
+            rawDetected = GESTURES.INDEX_SINGLE;
+          } else if (isFistState) {
+            rawDetected = GESTURES.FIST;
+          }
 
-        const counts = gestureHistory.current.reduce((acc, g) => { acc[g] = (acc[g] || 0) + 1; return acc; }, {});
-        const mostFrequentGesture = Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
-        
-        // 🛠️ 【解鎖判定加固】：移除歷史鎖限制。只要卡牌已顯現，就開始追蹤向下刷的動作
-        if (isCardRevealed && !isScratchFinished) {
-          const extendedCount = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length;
-          // 只要畫面上不是握拳（有伸出手指），並且捕捉到食指尖強烈的「向下揮動」訊號 (deltaY 突變)
-          if (extendedCount >= 2 && deltaFingerY > 0.015) {
+          if (rawDetected === GESTURES.TWO_FINGERS_SCRATCH) scratchLockExpiryRef.current = currentTime + 500;
+          if (currentTime < scratchLockExpiryRef.current && globalGestureRef.current === GESTURES.TWO_FINGERS_SCRATCH) rawDetected = GESTURES.TWO_FINGERS_SCRATCH;
+
+          gestureHistory.current.push(rawDetected);
+          if (gestureHistory.current.length > 12) gestureHistory.current.shift();
+
+          const counts = gestureHistory.current.reduce((acc, g) => { acc[g] = (acc[g] || 0) + 1; return acc; }, {});
+          const mostFrequentGesture = Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+
+          if (isCardRevealed && !isScratchFinished) {
+            const extendedCount = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length;
+            if (extendedCount >= 2 && deltaFingerY > 0.015) {
+              setIsScratchFinished(true);
+            }
+          }
+
+          if (counts[mostFrequentGesture] >= 3) {
+            if (mostFrequentGesture === GESTURES.FIVE_FINGERS && isScratchFinished) {
+              const currentHandX = landmarks[0].x;
+              if (currentHandX > 0.6) {
+                setIsCardRevealed(false);
+                setIsScratchFinished(false);
+                changeState(GESTURES.CHAOS);
+              }
+            }
+            if (!hasEverFisted.current && mostFrequentGesture !== GESTURES.FIST) changeState(GESTURES.CHAOS);
+            else { if (mostFrequentGesture === GESTURES.FIST) hasEverFisted.current = true; changeState(mostFrequentGesture); }
+          }
+
+          if (globalGestureRef.current === GESTURES.INDEX_SINGLE && lastGestureRef.current !== GESTURES.INDEX_SINGLE && !isCardRevealed) {
+            const pool = uploadedImagesRef.current;
+            if (pool && pool.length >= 12) {
+              const randIndex = Math.floor(Math.random() * 12);
+              setChosenIndex(randIndex);
+              setCurrentTextureUrl(pool[randIndex]);
+            }
+          }
+          lastGestureRef.current = globalGestureRef.current;
+
+          results.multiHandLandmarks.forEach((handPoints) => {
+            ctx.fillStyle = '#c5a059';
+            handPoints.forEach((pt) => { ctx.beginPath(); ctx.arc(pt.x * canvasRef.current.width, pt.y * canvasRef.current.height, 4, 0, 2 * Math.PI); ctx.fill(); });
+          });
+
+        } else {
+          if (isCardRevealed && !isScratchFinished) {
             setIsScratchFinished(true);
           }
-        }
-
-        if (counts[mostFrequentGesture] >= 3) {
-          // 雙向相容：保留五指右滑重置（如果需要）
-          if (mostFrequentGesture === GESTURES.FIVE_FINGERS && isScratchFinished) {
-            // 計算 X 位移
-            const currentHandX = landmarks[0].x;
-            if (currentHandX > 0.6) {
-              setIsCardRevealed(false);
-              setIsScratchFinished(false);
-              changeState(GESTURES.CHAOS);
-            }
+          if (currentTime > scratchLockExpiryRef.current && globalGestureRef.current !== GESTURES.TWO_FINGERS_SCRATCH) {
+            changeState(hasEverFisted.current ? GESTURES.FIST : GESTURES.CHAOS);
           }
-          if (!hasEverFisted.current && mostFrequentGesture !== GESTURES.FIST) changeState(GESTURES.CHAOS); 
-          else { if (mostFrequentGesture === GESTURES.FIST) hasEverFisted.current = true; changeState(mostFrequentGesture); }
+          lastGestureRef.current = globalGestureRef.current;
         }
-
-        if (globalGestureRef.current === GESTURES.INDEX_SINGLE && lastGestureRef.current !== GESTURES.INDEX_SINGLE && !isCardRevealed) {
-          const pool = uploadedImagesRef.current;
-          if (pool && pool.length >= 12) {
-            const randIndex = Math.floor(Math.random() * 12);
-            setChosenIndex(randIndex);
-            setCurrentTextureUrl(pool[randIndex]); 
-          }
-        }
-        lastGestureRef.current = globalGestureRef.current;
-
-        results.multiHandLandmarks.forEach((handPoints) => {
-          ctx.fillStyle = '#c5a059';
-          handPoints.forEach((pt) => { ctx.beginPath(); ctx.arc(pt.x * canvasRef.current.width, pt.y * canvasRef.current.height, 4, 0, 2 * Math.PI); ctx.fill(); });
-        });
-
-      } else {
-        // 如果手部突然離開畫面，也直接觸發應急彈出，絕不卡死
-        if (isCardRevealed && !isScratchFinished) {
-          setIsScratchFinished(true);
-        }
-        if (currentTime > scratchLockExpiryRef.current && globalGestureRef.current !== GESTURES.TWO_FINGERS_SCRATCH) {
-          changeState(hasEverFisted.current ? GESTURES.FIST : GESTURES.CHAOS);
-        }
-        lastGestureRef.current = globalGestureRef.current;
-      }
-    });
-
-    if (videoRef.current) {
-      cameraInstanceRef.current = new WinCamera(videoRef.current, {
-        onFrame: async () => {
-          const now = performance.now();
-          if (now - lastSentTimeRef.current > 35) { 
-            lastSentTimeRef.current = now;
-            if (videoRef.current && videoRef.current.readyState >= 2) { 
-              try { await hands.send({ image: videoRef.current }); } catch (e) { console.warn('MediaPipe send error:', e); } 
-            }
-          }
-        }, width: 320, height: 240,
       });
-      cameraInstanceRef.current.start().catch((e) => { console.warn('MediaPipe camera start failed:', e); });
-    }
-    return () => { if (cameraInstanceRef.current) { try { cameraInstanceRef.current.stop(); } catch(e){} } };
+
+      const setupVideoStream = async () => {
+        if (!videoRef.current) return;
+        const videoEl = videoRef.current;
+        videoEl.setAttribute('playsinline', 'true');
+        videoEl.muted = true;
+        videoEl.autoplay = true;
+        videoEl.style.display = 'block';
+
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+            videoEl.srcObject = stream;
+            await videoEl.play();
+          } catch (streamError) {
+            console.warn('getUserMedia setup failed:', streamError);
+          }
+        }
+      };
+
+      await setupVideoStream();
+
+      if (videoRef.current) {
+        cameraInstanceRef.current = new WinCamera(videoRef.current, {
+          onFrame: async () => {
+            const now = performance.now();
+            if (now - lastSentTimeRef.current > 35) {
+              lastSentTimeRef.current = now;
+              if (videoRef.current && videoRef.current.readyState >= 2) {
+                try {
+                  await hands.send({ image: videoRef.current });
+                } catch (e) {
+                  console.warn('MediaPipe send error:', e);
+                }
+              }
+            }
+          }, width: 320, height: 240,
+        });
+        cameraInstanceRef.current.start().catch(async (e) => {
+          console.warn('MediaPipe camera start failed:', e);
+          if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            try {
+              const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+              videoRef.current.srcObject = stream;
+              await videoRef.current.play();
+            } catch (streamError) {
+              console.warn('Manual getUserMedia fallback failed:', streamError);
+            }
+          }
+        });
+      }
+    };
+
+    runCamera();
+
+    return () => {
+      cancel = true;
+      if (cameraInstanceRef.current) {
+        try { cameraInstanceRef.current.stop(); } catch (e) {}
+      }
+    };
   }, [isSdkLoaded, isCardRevealed, isScratchFinished]);
 
   const btnStyle = (active) => ({
@@ -674,7 +723,15 @@ export default function TarotExperience() {
   });
 
   return (
-    <div onMouseMove={handleMouseMove} style={{ position: 'fixed', inset: 0, width: '100vw', height: '100vh', backgroundColor: '#020104', overflow: 'hidden', zIndex: 99999 }}>
+    <div
+      onMouseMove={handleMouseMove}
+      onTouchMove={handleTouchMove}
+      onTouchStart={handleTouchMove}
+      style={{
+        position: 'fixed', inset: 0, width: '100vw', height: '100vh', backgroundColor: '#020104', overflow: 'hidden', zIndex: 99999,
+        touchAction: 'none', WebkitTouchCallout: 'none', WebkitUserSelect: 'none'
+      }}
+    >
       
       <style>{`
         @keyframes revealScroll {
