@@ -190,7 +190,7 @@ function CosmicFluidBackground({ globalGesture, pointerX, hideNebula }) {
 // 🃏 3D 無限卡牌核心組件
 function TarotDeck({ 
   globalGestureRef, pointerRef, currentTextureUrl, onForceGestureChange, 
-  onCardRevealedChange, isScratchFinished, activeCardIndex, isStarted 
+  onCardRevealedChange, isScratchFinished, activeCardIndex 
 }) {
   const meshRef = useRef();
   const cardCount = 60; 
@@ -314,30 +314,6 @@ function TarotDeck({
     let currentGesture = globalGestureRef.current;
     const currentPointerX = pointerRef.current; 
     const data = cards.current;
-
-    // 🌟 如果還未點擊進入，卡牌做一種極慢速、神聖優雅的向中心聚攏旋轉
-    if (!isStarted) {
-      data.forEach((c, i) => {
-        const seed = chaosSeeds.current[i];
-        // 慢速圓周散開做背景氛圍
-        const radius = 1.6 + Math.sin(time * 0.2 + i * 0.1) * 0.2;
-        const angle = (i / cardCount) * Math.PI * 2 + time * 0.05;
-        c.targetPos.set(Math.cos(angle) * radius, Math.sin(angle) * 0.4, -1.2 + Math.sin(angle) * 0.3);
-        c.targetRot.set(0.3, angle + Math.PI/2, Math.sin(time * 0.2) * 0.2);
-        c.targetScale.set(0.65, 0.65, 0.65);
-
-        c.pos.lerp(c.targetPos, 0.03);
-        c.rot.x = THREE.MathUtils.lerp(c.rot.x, c.targetRot.x, 0.03);
-        c.rot.y = THREE.MathUtils.lerp(c.rot.y, c.targetRot.y, 0.03);
-        c.rot.z = THREE.MathUtils.lerp(c.rot.z, c.targetRot.z, 0.03);
-        c.scale.lerp(c.targetScale, 0.03);
-
-        dummy.position.copy(c.pos); dummy.rotation.copy(c.rot); dummy.scale.copy(c.scale); dummy.updateMatrix();
-        meshRef.current.setMatrixAt(i, dummy.matrix);
-      });
-      meshRef.current.instanceMatrix.needsUpdate = true;
-      return;
-    }
 
     if (isLockedInCenterRef.current && !isScratchFinished) {
       currentGesture = GESTURES.TWO_FINGERS_SCRATCH; 
@@ -469,15 +445,15 @@ export default function TarotExperience() {
   const videoRef = useRef(null); const canvasRef = useRef(null); const cameraInstanceRef = useRef(null);
   const [gestureState, setGestureState] = useState(GESTURES.CHAOS); const [isSdkLoaded, setIsSdkLoaded] = useState(false);
   
-  // 🎯 新增：開始頁面控制狀態
-  const [isStarted, setIsStarted] = useState(false); 
-
   const [uploadedImages, setUploadedImages] = useState([]); const uploadedImagesRef = useRef([]);
   const [currentTextureUrl, setCurrentTextureUrl] = useState(null); const [isMinimized, setIsMinimized] = useState(false);
 
   const [isCardRevealed, setIsCardRevealed] = useState(false);     
   const [isScratchFinished, setIsScratchFinished] = useState(false); 
   const [chosenIndex, setChosenIndex] = useState(0);               
+
+  // ✨ 新增：用於控制首頁進入主系統的狀態
+  const [isExperienceStarted, setIsExperienceStarted] = useState(false);
 
   // ✨ 動畫控制狀態
   const [isDissolving, setIsDissolving] = useState(false); // 控制粒子消散狀態
@@ -569,7 +545,7 @@ export default function TarotExperience() {
   }, []);
 
   useEffect(() => {
-    if (!isSdkLoaded || !isStarted) return; // 🌟 如果還未點擊進入，不啟動手勢相機偵測
+    if (!isSdkLoaded) return;
     const WinHands = window.Hands; const WinCamera = window.Camera;
     if (!WinHands || !WinCamera) return;
 
@@ -690,7 +666,7 @@ export default function TarotExperience() {
       cameraInstanceRef.current.start().catch(() => {});
     }
     return () => { if (cameraInstanceRef.current) { try { cameraInstanceRef.current.stop(); } catch(e){} } };
-  }, [isSdkLoaded, isCardRevealed, isScratchFinished, isStarted]);
+  }, [isSdkLoaded, isCardRevealed, isScratchFinished]);
 
   const btnStyle = (active) => ({
     padding: '10px 18px', fontSize: '13px', borderRadius: '8px', border: '1px solid #c5a059', cursor: 'pointer',
@@ -739,12 +715,6 @@ export default function TarotExperience() {
           }
         }
 
-        /* 🔮 新增：開始頁面呼吸與流光特效 */
-        @keyframes breathGlow {
-          0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(197,160,89,0.2), inset 0 0 10px rgba(197,160,89,0.1); }
-          50% { transform: scale(1.02); box-shadow: 0 0 40px rgba(197,160,89,0.6), inset 0 0 20px rgba(197,160,89,0.3); }
-        }
-
         .fortune-window-enter {
           animation: revealScroll 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
           transform-origin: center bottom;
@@ -755,25 +725,29 @@ export default function TarotExperience() {
           transform-origin: center top;
         }
 
-        .start-btn-glow {
-          animation: breathGlow 3s ease-in-out infinite;
-          transition: all 0.4s ease;
+        /* ✨ 新增：高級感呼吸燈特效 */
+        @keyframes subtleGlow {
+          0%, 100% { opacity: 0.8; box-shadow: 0 0 20px rgba(255,255,255,0.1); }
+          50% { opacity: 1; box-shadow: 0 0 35px rgba(210,180,240,0.25); }
         }
-        .start-btn-glow:hover {
-          background: #c5a059 !important;
-          color: #020104 !important;
-          box-shadow: 0 0 50px #c5a059 !important;
-          letter-spacing: 6px !important;
+        .luxury-button {
+          animation: subtleGlow 3s infinite ease-in-out;
+          transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        .luxury-button:hover {
+          background: rgba(255, 255, 255, 0.9) !important;
+          color: #0d061f !important;
+          transform: scale(1.05) translateY(-2px);
+          box-shadow: 0 10px 30px rgba(230,210,255,0.4) !important;
         }
       `}</style>
 
-      {/* 🌌 背景 3D 渲染層 */}
+      {/* 🌌 背景：3D 卡牌漫天飛舞粒子場景 */}
       <div style={{ position: 'absolute', width: '100vw', height: '100vh', left: 0, top: 0, zIndex: 10 }}>
         <Canvas camera={{ position: [0, 0, 2.8], fov: 45 }}>
           <ambientLight intensity={1.5} />
           <pointLight position={[0, 3, 3]} intensity={2.5} color="#c5a059" />
           
-          {/* 星雲在未開始時依然作為精美的宇宙大背景運作 */}
           <CosmicFluidBackground globalGesture={gestureState} pointerX={pointerRef.current} hideNebula={isScratchFinished} />
           <TransparentWaterRipple active={isScratchFinished} />
 
@@ -785,59 +759,64 @@ export default function TarotExperience() {
             onCardRevealedChange={(isDone) => setIsCardRevealed(isDone)} 
             isScratchFinished={isScratchFinished}
             activeCardIndex={30} 
-            isStarted={isStarted} // 傳入開始狀態
           />
         </Canvas>
       </div>
 
-      {/* 🚪 歡迎與儀式開始頁面層 */}
-      {!isStarted && (
+      {/* 🔮 高級感首頁 UI 疊加層（點擊按鈕後隱藏） */}
+      {!isExperienceStarted && (
         <div style={{
-          position: 'absolute', inset: 0, zIndex: 99998,
+          position: 'absolute', inset: 0, zIndex: 100,
           display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-          background: 'radial-gradient(circle at center, rgba(10,5,24,0.4) 0%, rgba(2,1,4,0.85) 80%)',
-          backdropFilter: 'blur(3px)', transition: 'all 1s ease'
+          background: 'linear-gradient(to bottom, rgba(3,1,7,0.3) 0%, rgba(5,2,12,0.65) 100%)',
+          pointerEvents: 'auto', textAlign: 'center', padding: '0 20px'
         }}>
-          <div style={{ textAlign: 'center', maxWidth: '600px', padding: '0 20px' }}>
-            {/* 副標題 */}
-            <div style={{ color: 'rgba(197, 160, 89, 0.6)', fontSize: '14px', letterSpacing: '6px', marginBottom: '10px', textTransform: 'uppercase' }}>
-              - Quantum Cosmic Destiny -
-            </div>
-            {/* 主標題 */}
-            <h1 style={{ 
-              color: '#fff', fontSize: '42px', fontWeight: '300', letterSpacing: '8px', margin: '0 0 30px 0',
-              textShadow: '0 0 20px rgba(197,160,89,0.4)'
-            }}>
-              量子流體奧秘占卜
-            </h1>
-            
-            <p style={{ color: 'rgba(255,255,255,0.65)', fontSize: '15px', lineHeight: '1.8', letterSpacing: '2px', marginBottom: '50px' }}>
-              放空思緒，將意識與浩瀚量子星雲連結。<br />
-              點擊下方開啟今日好運，探索屬於你的命運之牌。
-            </p>
+          {/* 大標題：簡潔剔透白，帶有柔和的紫粉色霓虹陰影 */}
+          <h1 style={{
+            fontSize: '52px', fontWeight: '300', color: '#ffffff',
+            letterSpacing: '12px', margin: '0 0 24px 0',
+            textShadow: '0 0 15px rgba(255,255,255,0.3), 0 0 30px rgba(180,140,255,0.2)'
+          }}>
+            千絲萬縷 · 苗繡非遺卡牌
+          </h1>
 
-            {/* 🔮 核心按鈕 */}
-            <button 
-              className="start-btn-glow"
-              onClick={() => {
-                setIsStarted(true);
-                changeState(GESTURES.CHAOS); // 進入後直接切換為無重力漫天亂飛狀態
-              }}
-              style={{
-                background: 'rgba(197, 160, 89, 0.05)', color: '#c5a059',
-                border: '1px solid #c5a059', padding: '16px 48px', fontSize: '18px',
-                fontWeight: 'bold', borderRadius: '50px', cursor: 'pointer',
-                letterSpacing: '4px', outline: 'none'
-              }}
-            >
-              開啟今日好運 ✨
-            </button>
-          </div>
+          {/* 副標題：高雅淡紫色 */}
+          <p style={{
+            fontSize: '18px', fontWeight: '300', color: '#d2c4e8',
+            letterSpacing: '6px', margin: '0 0 12px 0', opacity: 0.9,
+            textShadow: '0 2px 8px rgba(0,0,0,0.5)'
+          }}>
+            梭穿時空之經緯，絲連命運之圖騰
+          </p>
+          <p style={{
+            fontSize: '14px', fontWeight: '300', color: '#bcaad4',
+            letterSpacing: '4px', margin: '0 0 48px 0', opacity: 0.75
+          }}>
+            點擊開啟非遺卡牌，凝結屬於你的今日好運與傳承啟示
+          </p>
+
+          {/* 按鈕：半透明毛玻璃微光按鈕 */}
+          <button 
+            className="luxury-button"
+            onClick={() => {
+              setIsExperienceStarted(true);
+              changeState(GESTURES.CHAOS); // 進入後保持亂飛或你想要的預設手勢
+            }}
+            style={{
+              padding: '14px 44px', fontSize: '16px', fontWeight: '4px', letterSpacing: '4px',
+              color: '#ffffff', background: 'rgba(255, 255, 255, 0.06)',
+              border: '1px solid rgba(220, 200, 255, 0.35)', borderRadius: '30px',
+              backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+              cursor: 'pointer', outline: 'none'
+            }}
+          >
+            ✨ 開啟今日好運 ✨
+          </button>
         </div>
       )}
 
-      {/* ================= 後續的主場景控制 UI（僅在 isStarted 為真時顯示） ================= */}
-      {isStarted && (
+      {/* 以下為原專案內互動視窗、控制台和手勢底座（僅在進入體驗後或上傳牌池後正常運作） */}
+      {isExperienceStarted && (
         <>
           {/* ✌️ 提示引導條 */}
           {isCardRevealed && !isScratchFinished && (
@@ -883,44 +862,6 @@ export default function TarotExperience() {
             </div>
           )}
 
-          {/* 右上角相機偵測畫面 */}
-          {isSdkLoaded && (
-            <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 9999, width: '220px', height: '165px', borderRadius: '12px', overflow: 'hidden', border: '2px solid #c5a059', transform: 'scaleX(-1)', background: '#000' }}>
-              <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
-              <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} width={320} height={240} />
-            </div>
-          )}
-
-          {/* 懸浮控制台 */}
-          <div style={{ position: 'absolute', top: '205px', right: '20px', zIndex: 9999, background: 'rgba(15, 8, 28, 0.95)', border: '1px solid #c5a059', padding: '14px', borderRadius: '10px', width: '220px', color: '#c5a059', boxShadow: '0 6px 30px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ position: 'absolute', top: '-14px', right: '10px', zIndex: 10000 }}>
-              <button onClick={() => setIsMinimized(!isMinimized)} style={{ background: '#c5a059', color: '#0a0514', border: '2px solid #0a0514', borderRadius: '20px', padding: '2px 10px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.5)' }}>
-                {isMinimized ? "➕ 展開控制台" : "➖ 最小化隱藏"}
-              </button>
-            </div>
-            {!isMinimized && (
-              <>
-                <div style={{ fontSize: '12px', fontWeight: 'bold', textAlign: 'center', borderBottom: '1px solid rgba(197,160,89,0.3)', paddingBottom: '6px', marginTop: '6px' }}>🖼️ 24張配對簽文池 ({uploadedImages.length}/24)</div>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <label style={{ flex: 1, background: uploadedImages.length >= 24 ? '#444' : '#c5a059', color: uploadedImages.length >= 24 ? '#888' : '#000', padding: '6px 0', borderRadius: '6px', textAlign: 'center', cursor: uploadedImages.length >= 24 ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
-                    {uploadedImages.length >= 24 ? "牌池已備齊" : "➕ 上傳多圖"}
-                    <input type="file" accept="image/*" multiple disabled={uploadedImages.length >= 24} onChange={handleMultipleImagesUpload} style={{ display: 'none' }} />
-                  </label>
-                  {uploadedImages.length > 0 && <button onClick={clearImagesPool} style={{ background: 'rgba(255,0,0,0.15)', color: '#ff6b6b', border: '1px solid #ff6b6b', borderRadius: '6px', padding: '0 8px', fontSize: '11px', cursor: 'pointer' }}>清空</button>}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', maxHeight: '120px', overflowY: 'auto', background: 'rgba(0,0,0,0.4)', padding: '6px', borderRadius: '6px', border: '1px solid rgba(197,160,89,0.15)' }}>
-                  {uploadedImages.map((url, index) => (
-                    <div key={index} style={{ width: '100%', aspectRatio: '1/1', borderRadius: '4px', overflow: 'hidden', border: index >= 12 ? '1px dashed #c5a059' : '1px solid rgba(255,255,255,0.2)', position: 'relative' }}>
-                      <img src={url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="slot" />
-                      <span style={{ position: 'absolute', bottom: 0, left: 0, background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '8px', padding: '0 2px' }}>{index >= 12 ? `签${index-11}` : `牌${index+1}`}</span>
-                    </div>
-                  ))}
-                  {uploadedImages.length === 0 && <div style={{ gridColumn: 'span 4', fontSize: '10px', color: '#777', textAlign: 'center', padding: '20px 0' }}>請選取並上傳滿 24 張配對圖</div>}
-                </div>
-              </>
-            )}
-          </div>
-
           {/* 底部按鈕底座 */}
           <div style={{ position: 'absolute', bottom: '40px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
             <div style={{ display: 'flex', gap: '12px', background: 'rgba(5, 2, 10, 0.95)', padding: '10px', borderRadius: '14px', border: '1px solid #c5a059' }}>
@@ -936,6 +877,45 @@ export default function TarotExperience() {
           </div>
         </>
       )}
+
+      {/* 相機視窗（始終掛載或根據需要放置） */}
+      {isSdkLoaded && (
+        <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 9999, width: '220px', height: '165px', borderRadius: '12px', overflow: 'hidden', border: '2px solid #c5a059', transform: 'scaleX(-1)', background: '#000' }}>
+          <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
+          <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} width={320} height={240} />
+        </div>
+      )}
+
+      {/* 懸浮控制台 */}
+      <div style={{ position: 'absolute', top: '205px', right: '20px', zIndex: 9999, background: 'rgba(15, 8, 28, 0.95)', border: '1px solid #c5a059', padding: '14px', borderRadius: '10px', width: '220px', color: '#c5a059', boxShadow: '0 6px 30px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ position: 'absolute', top: '-14px', right: '10px', zIndex: 10000 }}>
+          <button onClick={() => setIsMinimized(!isMinimized)} style={{ background: '#c5a059', color: '#0a0414', border: '2px solid #0a0414', borderRadius: '20px', padding: '2px 10px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.5)' }}>
+            {isMinimized ? "➕ 展開控制台" : "➖ 最小化隱藏"}
+          </button>
+        </div>
+        {!isMinimized && (
+          <>
+            <div style={{ fontSize: '12px', fontWeight: 'bold', textAlign: 'center', borderBottom: '1px solid rgba(197,160,89,0.3)', paddingBottom: '6px', marginTop: '6px' }}>🖼️ 24張配對簽文池 ({uploadedImages.length}/24)</div>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <label style={{ flex: 1, background: uploadedImages.length >= 24 ? '#444' : '#c5a059', color: uploadedImages.length >= 24 ? '#888' : '#000', padding: '6px 0', borderRadius: '6px', textAlign: 'center', cursor: uploadedImages.length >= 24 ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
+                {uploadedImages.length >= 24 ? "牌池已備齊" : "➕ 上傳多圖"}
+                <input type="file" accept="image/*" multiple disabled={uploadedImages.length >= 24} onChange={handleMultipleImagesUpload} style={{ display: 'none' }} />
+              </label>
+              {uploadedImages.length > 0 && <button onClick={clearImagesPool} style={{ background: 'rgba(255,0,0,0.15)', color: '#ff6b6b', border: '1px solid #ff6b6b', borderRadius: '6px', padding: '0 8px', fontSize: '11px', cursor: 'pointer' }}>清空</button>}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', maxHeight: '120px', overflowY: 'auto', background: 'rgba(0,0,0,0.4)', padding: '6px', borderRadius: '6px', border: '1px solid rgba(197,160,89,0.15)' }}>
+              {uploadedImages.map((url, index) => (
+                <div key={index} style={{ width: '100%', aspectRatio: '1/1', borderRadius: '4px', overflow: 'hidden', border: index >= 12 ? '1px dashed #c5a059' : '1px solid rgba(255,255,255,0.2)', position: 'relative' }}>
+                  <img src={url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="slot" />
+                  <span style={{ position: 'absolute', bottom: 0, left: 0, background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '8px', padding: '0 2px' }}>{index >= 12 ? `签${index-11}` : `牌${index+1}`}</span>
+                </div>
+              ))}
+              {uploadedImages.length === 0 && <div style={{ gridColumn: 'span 4', fontSize: '10px', color: '#777', textAlign: 'center', padding: '20px 0' }}>請選取並上傳滿 24 張配對圖</div>}
+            </div>
+          </>
+        )}
+      </div>
+
     </div>
   );
 }
