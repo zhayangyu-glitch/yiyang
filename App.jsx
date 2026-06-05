@@ -553,6 +553,7 @@ export default function TarotExperience() {
     if (!isSdkLoaded) return;
 
     let cancel = false;
+    let fallbackLoopId = null;
 
     const runCamera = async () => {
       const WinHands = window.Hands;
@@ -661,7 +662,16 @@ export default function TarotExperience() {
         videoEl.setAttribute('playsinline', 'true');
         videoEl.muted = true;
         videoEl.autoplay = true;
+        videoEl.playsInline = true;
         videoEl.style.display = 'block';
+        videoEl.style.objectFit = 'cover';
+
+        videoEl.onloadedmetadata = () => {
+          videoEl.play().catch((e) => { console.warn('Video play failed on loadedmetadata:', e); });
+        };
+        videoEl.oncanplay = () => {
+          videoEl.play().catch((e) => { console.warn('Video play failed on canplay:', e); });
+        };
 
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
           try {
@@ -675,6 +685,15 @@ export default function TarotExperience() {
       };
 
       await setupVideoStream();
+
+      let fallbackLoopId = null;
+      const startFallbackLoop = () => {
+        if (cancel || !videoRef.current) return;
+        if (videoRef.current.readyState >= 2) {
+          hands.send({ image: videoRef.current }).catch((e) => { console.warn('MediaPipe fallback send error:', e); });
+        }
+        fallbackLoopId = requestAnimationFrame(startFallbackLoop);
+      };
 
       if (videoRef.current) {
         cameraInstanceRef.current = new WinCamera(videoRef.current, {
@@ -693,7 +712,7 @@ export default function TarotExperience() {
           }, width: 320, height: 240,
         });
         cameraInstanceRef.current.start().catch(async (e) => {
-          console.warn('MediaPipe camera start failed:', e);
+          console.warn('MediaPipe camera start failed, fallback to manual stream:', e);
           if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             try {
               const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
@@ -703,8 +722,10 @@ export default function TarotExperience() {
               console.warn('Manual getUserMedia fallback failed:', streamError);
             }
           }
+          startFallbackLoop();
         });
       }
+
     };
 
     runCamera();
@@ -714,6 +735,7 @@ export default function TarotExperience() {
       if (cameraInstanceRef.current) {
         try { cameraInstanceRef.current.stop(); } catch (e) {}
       }
+      if (fallbackLoopId) cancelAnimationFrame(fallbackLoopId);
     };
   }, [isSdkLoaded, isCardRevealed, isScratchFinished]);
 
