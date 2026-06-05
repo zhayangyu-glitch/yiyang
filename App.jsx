@@ -90,7 +90,7 @@ function TransparentWaterRipple({ active }) {
 // 🌌 量子流體星雲系統
 function CosmicFluidBackground({ globalGesture, pointerX, hideNebula }) {
   const smokeRef = useRef(); const dustRef = useRef();
-  const smokeCount = 2000; const dustCount = 2500;  
+  const smokeCount = 1000; const dustCount = 1200;  // 📱 手机端：减少粒子数量防止卡顿黑屏
   const nebulaTexture = React.useMemo(() => createNebulaTexture(), []);
   const currentOpacity = useRef(0.38);
 
@@ -193,7 +193,7 @@ function TarotDeck({
   onCardRevealedChange, isScratchFinished, activeCardIndex 
 }) {
   const meshRef = useRef();
-  const cardCount = 60; 
+  const cardCount = 30; // 📱 手机端：从 60 降到 30，GPU 渲染压力减半，防止和摄像头抢占硬件资源
 
   const scrollOffset = useRef(0);      
   const targetScrollOffset = useRef(0); 
@@ -326,7 +326,7 @@ function TarotDeck({
     lastPointerX.current = currentPointerX;
     
     scrollOffset.current = THREE.MathUtils.lerp(scrollOffset.current, targetScrollOffset.current, 0.08);
-    let activeIndex = activeCardIndex;
+    let activeIndex = activeCardIndex % cardCount; // 防止越界
 
     const isPickedState = (currentGesture === GESTURES.INDEX_SINGLE || currentGesture === GESTURES.TWO_FINGERS_SCRATCH);
     if (isPickedState && !lastIsLightGoldRef.current) {
@@ -376,7 +376,7 @@ function TarotDeck({
         c.targetScale.set(1, 1, 1);
       }
       else if (currentGesture === GESTURES.FIST) {
-        const offsetX = (i - (cardCount - 1) / 2) * 0.003;
+        const offsetX = (i - (cardCount - 1) / 2) * 0.005;
         c.targetPos.set(offsetX, -1.3, -i * 0.01); 
         c.targetRot.set(0, Math.PI, 0); c.targetScale.set(1, 1, 1);
         targetScrollOffset.current = 0; 
@@ -451,14 +451,9 @@ export default function TarotExperience() {
   const [isCardRevealed, setIsCardRevealed] = useState(false);     
   const [isScratchFinished, setIsScratchFinished] = useState(false); 
   const [chosenIndex, setChosenIndex] = useState(0);               
-  const isCardRevealedRef = useRef(false);
-  const isScratchFinishedRef = useRef(false);
 
-  // ✨ 新增：用於控制首頁進入主系統的狀態
   const [isExperienceStarted, setIsExperienceStarted] = useState(false);
-
-  // ✨ 動畫控制狀態
-  const [isDissolving, setIsDissolving] = useState(false); // 控制粒子消散狀態
+  const [isDissolving, setIsDissolving] = useState(false); 
 
   const globalGestureRef = useRef(GESTURES.CHAOS); const pointerRef = useRef(0);
   
@@ -467,22 +462,13 @@ export default function TarotExperience() {
   const lastGestureRef = useRef(GESTURES.CHAOS); const scratchLockExpiryRef = useRef(0); 
   const lastSentTimeRef = useRef(0); 
 
-  // 🎯 追蹤高精確度指尖位移的核心 Ref
   const lastFingerYRef = useRef(0); 
 
   const changeState = (nextG) => {
     if (globalGestureRef.current !== nextG) { globalGestureRef.current = nextG; setGestureState(nextG); }
   };
 
-  useEffect(() => { isCardRevealedRef.current = isCardRevealed; }, [isCardRevealed]);
-  useEffect(() => { isScratchFinishedRef.current = isScratchFinished; }, [isScratchFinished]);
-
   const handleMouseMove = (e) => { pointerRef.current = (e.clientX / window.innerWidth) * 2 - 1; };
-  const handleTouchMove = (e) => {
-    if (e.touches && e.touches.length > 0) {
-      pointerRef.current = (e.touches[0].clientX / window.innerWidth) * 2 - 1;
-    }
-  };
 
   const triggerManualInteract = () => {
     if (isCardRevealed && !isScratchFinished) {
@@ -490,17 +476,13 @@ export default function TarotExperience() {
     }
   };
 
-  // 🔮 監聽簽文出現，觸發「停留5秒後自動消散重置」的核心邏輯
   useEffect(() => {
     if (isScratchFinished) {
-      setIsDissolving(false); // 確保一開始是完整顯示
-
-      // 1. 停留 5 秒鐘後開始播放消散粒子動畫
+      setIsDissolving(false);
       const dissolveTimer = setTimeout(() => {
         setIsDissolving(true);
       }, 5000);
 
-      // 2. 消散動畫播放 2 秒後，徹底重置系統狀態回到主介面
       const resetTimer = setTimeout(() => {
         setIsCardRevealed(false);
         setIsScratchFinished(false);
@@ -556,287 +538,162 @@ export default function TarotExperience() {
 
   useEffect(() => {
     if (!isSdkLoaded) return;
+    const WinHands = window.Hands; const WinCamera = window.Camera;
+    if (!WinHands || !WinCamera) return;
 
-    let cancel = false;
-    let fallbackLoopId = null;
+    const hands = new WinHands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+    
+    hands.setOptions({ 
+      maxNumHands: 1, 
+      modelComplexity: 0, // 📱 修复：手机端必须将复杂度设为 0（移动端专用轻量模型），防止算力撑爆黑屏
+      minDetectionConfidence: 0.4, 
+      minTrackingConfidence: 0.4 
+    });
 
-    const runCamera = async () => {
-      const WinHands = window.Hands;
-      const WinCamera = window.Camera;
-      if (!WinHands || !WinCamera) return;
+    hands.onResults((results) => {
+      if (!canvasRef.current || !videoRef.current || !results || videoRef.current.videoWidth === 0) return;
+      const ctx = canvasRef.current.getContext('2d'); ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      const currentTime = performance.now();
 
-      const hands = new WinHands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
-      hands.setOptions({
-        maxNumHands: 1,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.45,
-        minTrackingConfidence: 0.45
-      });
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+        const isFingerExtended = (tipIdx, mcpIdx) => landmarks[tipIdx].y < landmarks[mcpIdx].y - 0.02;
 
-      hands.onResults((results) => {
-        if (cancel) return;
-        if (!canvasRef.current || !videoRef.current || !results || videoRef.current.videoWidth === 0) return;
-        const ctx = canvasRef.current.getContext('2d'); ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        const currentTime = performance.now();
+        const indexExtended  = isFingerExtended(8, 5);   
+        const middleExtended = isFingerExtended(12, 9);  
+        const ringExtended   = isFingerExtended(16, 13); 
+        const pinkyExtended  = isFingerExtended(20, 17); 
+        const isFistState = !indexExtended && !middleExtended && !ringExtended && !pinkyExtended;
 
-        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-          const landmarks = results.multiHandLandmarks[0];
-          const isFingerExtended = (tipIdx, mcpIdx) => landmarks[tipIdx].y < landmarks[mcpIdx].y - 0.02;
+        const currentFingerY = landmarks[8].y; 
+        const deltaFingerY = currentFingerY - lastFingerYRef.current; 
+        lastFingerYRef.current = currentFingerY;
 
-          const indexExtended = isFingerExtended(8, 5);
-          const middleExtended = isFingerExtended(12, 9);
-          const ringExtended = isFingerExtended(16, 13);
-          const pinkyExtended = isFingerExtended(20, 17);
-          const isFistState = !indexExtended && !middleExtended && !ringExtended && !pinkyExtended;
+        pointerRef.current = pointerRef.current * 0.6 + (-(landmarks[8].x - 0.5) * 2) * 0.4; 
 
-          const currentFingerY = landmarks[8].y;
-          const deltaFingerY = currentFingerY - lastFingerYRef.current;
-          lastFingerYRef.current = currentFingerY;
+        let rawDetected = GESTURES.CHAOS; 
+        if (indexExtended && middleExtended && ringExtended && pinkyExtended) {
+          rawDetected = GESTURES.FIVE_FINGERS;
+        } else if (indexExtended && middleExtended && !ringExtended && !pinkyExtended) {
+          rawDetected = GESTURES.TWO_FINGERS_SCRATCH; 
+        } else if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
+          rawDetected = GESTURES.INDEX_SINGLE;
+        } else if (isFistState) {
+          rawDetected = GESTURES.FIST; 
+        }
 
-          pointerRef.current = pointerRef.current * 0.6 + (-(landmarks[8].x - 0.5) * 2) * 0.4;
+        if (rawDetected === GESTURES.TWO_FINGERS_SCRATCH) scratchLockExpiryRef.current = currentTime + 500; 
+        if (currentTime < scratchLockExpiryRef.current && globalGestureRef.current === GESTURES.TWO_FINGERS_SCRATCH) rawDetected = GESTURES.TWO_FINGERS_SCRATCH;
 
-          let rawDetected = GESTURES.CHAOS;
-          if (indexExtended && middleExtended && ringExtended && pinkyExtended) {
-            rawDetected = GESTURES.FIVE_FINGERS;
-          } else if (indexExtended && middleExtended && !ringExtended && !pinkyExtended) {
-            rawDetected = GESTURES.TWO_FINGERS_SCRATCH;
-          } else if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
-            rawDetected = GESTURES.INDEX_SINGLE;
-          } else if (isFistState) {
-            rawDetected = GESTURES.FIST;
-          }
+        gestureHistory.current.push(rawDetected); 
+        if (gestureHistory.current.length > 10) gestureHistory.current.shift();
 
-          if (rawDetected === GESTURES.TWO_FINGERS_SCRATCH) scratchLockExpiryRef.current = currentTime + 500;
-          if (currentTime < scratchLockExpiryRef.current && globalGestureRef.current === GESTURES.TWO_FINGERS_SCRATCH) rawDetected = GESTURES.TWO_FINGERS_SCRATCH;
-
-          gestureHistory.current.push(rawDetected);
-          if (gestureHistory.current.length > 12) gestureHistory.current.shift();
-
-          const counts = gestureHistory.current.reduce((acc, g) => { acc[g] = (acc[g] || 0) + 1; return acc; }, {});
-          const mostFrequentGesture = Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
-
-          if (isCardRevealedRef.current && !isScratchFinishedRef.current) {
-            const extendedCount = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length;
-            if (extendedCount >= 2 && deltaFingerY > 0.015) {
-              setIsScratchFinished(true);
-            }
-          }
-
-          if (counts[mostFrequentGesture] >= 3) {
-            if (mostFrequentGesture === GESTURES.FIVE_FINGERS && isScratchFinishedRef.current) {
-              const currentHandX = landmarks[0].x;
-              if (currentHandX > 0.6) {
-                setIsCardRevealed(false);
-                setIsScratchFinished(false);
-                changeState(GESTURES.CHAOS);
-              }
-            }
-            if (!hasEverFisted.current && mostFrequentGesture !== GESTURES.FIST) changeState(GESTURES.CHAOS);
-            else { if (mostFrequentGesture === GESTURES.FIST) hasEverFisted.current = true; changeState(mostFrequentGesture); }
-          }
-
-          if (globalGestureRef.current === GESTURES.INDEX_SINGLE && lastGestureRef.current !== GESTURES.INDEX_SINGLE && !isCardRevealedRef.current) {
-            const pool = uploadedImagesRef.current;
-            if (pool && pool.length >= 12) {
-              const randIndex = Math.floor(Math.random() * 12);
-              setChosenIndex(randIndex);
-              setCurrentTextureUrl(pool[randIndex]);
-            }
-          }
-          lastGestureRef.current = globalGestureRef.current;
-
-          results.multiHandLandmarks.forEach((handPoints) => {
-            ctx.fillStyle = '#c5a059';
-            handPoints.forEach((pt) => { ctx.beginPath(); ctx.arc(pt.x * canvasRef.current.width, pt.y * canvasRef.current.height, 4, 0, 2 * Math.PI); ctx.fill(); });
-          });
-
-        } else {
-          if (isCardRevealedRef.current && !isScratchFinishedRef.current) {
+        const counts = gestureHistory.current.reduce((acc, g) => { acc[g] = (acc[g] || 0) + 1; return acc; }, {});
+        const mostFrequentGesture = Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+        
+        if (isCardRevealed && !isScratchFinished) {
+          const extendedCount = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length;
+          if (extendedCount >= 2 && deltaFingerY > 0.015) {
             setIsScratchFinished(true);
           }
-          if (currentTime > scratchLockExpiryRef.current && globalGestureRef.current !== GESTURES.TWO_FINGERS_SCRATCH) {
-            changeState(hasEverFisted.current ? GESTURES.FIST : GESTURES.CHAOS);
-          }
-          lastGestureRef.current = globalGestureRef.current;
         }
+
+        if (counts[mostFrequentGesture] >= 3) {
+          if (mostFrequentGesture === GESTURES.FIVE_FINGERS && isScratchFinished) {
+            const currentHandX = landmarks[0].x;
+            if (currentHandX > 0.6) {
+              setIsCardRevealed(false);
+              setIsScratchFinished(false);
+              changeState(GESTURES.CHAOS);
+            }
+          }
+          if (!hasEverFisted.current && mostFrequentGesture !== GESTURES.FIST) changeState(GESTURES.CHAOS); 
+          else { if (mostFrequentGesture === GESTURES.FIST) hasEverFisted.current = true; changeState(mostFrequentGesture); }
+        }
+
+        if (globalGestureRef.current === GESTURES.INDEX_SINGLE && lastGestureRef.current !== GESTURES.INDEX_SINGLE && !isCardRevealed) {
+          const pool = uploadedImagesRef.current;
+          if (pool && pool.length >= 12) {
+            const randIndex = Math.floor(Math.random() * 12);
+            setChosenIndex(randIndex);
+            setCurrentTextureUrl(pool[randIndex]); 
+          }
+        }
+        lastGestureRef.current = globalGestureRef.current;
+
+        results.multiHandLandmarks.forEach((handPoints) => {
+          ctx.fillStyle = '#c5a059';
+          handPoints.forEach((pt) => { ctx.beginPath(); ctx.arc(pt.x * canvasRef.current.width, pt.y * canvasRef.current.height, 4, 0, 2 * Math.PI); ctx.fill(); });
+        });
+
+      } else {
+        if (isCardRevealed && !isScratchFinished) {
+          setIsScratchFinished(true);
+        }
+        if (currentTime > scratchLockExpiryRef.current && globalGestureRef.current !== GESTURES.TWO_FINGERS_SCRATCH) {
+          changeState(hasEverFisted.current ? GESTURES.FIST : GESTURES.CHAOS);
+        }
+        lastGestureRef.current = globalGestureRef.current;
+      }
+    });
+
+    if (videoRef.current) {
+      cameraInstanceRef.current = new WinCamera(videoRef.current, {
+        onFrame: async () => {
+          const now = performance.now();
+          if (now - lastSentTimeRef.current > 40) { // 📱 修复：手机端控制传输间隔，防止处理器暴热
+            lastSentTimeRef.current = now;
+            if (videoRef.current && videoRef.current.readyState >= 2) { 
+              try { await hands.send({ image: videoRef.current }); } catch (e) {} 
+            }
+          }
+        },
+        // 📱 关键修复：强制调用手机前置摄像头，并指定低精细度分辨率以保证性能流畅
+        facingMode: 'user',
+        width: { ideal: 320 },
+        height: { ideal: 240 }
       });
-
-      const setupVideoStream = async () => {
-        if (!videoRef.current) return;
-        const videoEl = videoRef.current;
-        videoEl.setAttribute('playsinline', 'true');
-        videoEl.muted = true;
-        videoEl.autoplay = true;
-        videoEl.playsInline = true;
-        videoEl.style.display = 'block';
-        videoEl.style.objectFit = 'cover';
-
-        videoEl.onloadedmetadata = () => {
-          videoEl.style.visibility = 'visible';
-          videoEl.style.backgroundColor = 'transparent';
-          videoEl.play().catch((e) => { console.warn('Video play failed on loadedmetadata:', e); });
-        };
-        videoEl.oncanplay = () => {
-          videoEl.style.visibility = 'visible';
-          videoEl.style.backgroundColor = 'transparent';
-          videoEl.play().catch((e) => { console.warn('Video play failed on canplay:', e); });
-        };
-
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
-            videoEl.srcObject = stream;
-            await videoEl.play();
-          } catch (streamError) {
-            console.warn('getUserMedia setup failed:', streamError);
-          }
-        }
-      };
-
-      await setupVideoStream();
-
-      let fallbackLoopId = null;
-      const startFallbackLoop = () => {
-        if (cancel || !videoRef.current) return;
-        if (videoRef.current.readyState >= 2) {
-          hands.send({ image: videoRef.current }).catch((e) => { console.warn('MediaPipe fallback send error:', e); });
-        }
-        fallbackLoopId = requestAnimationFrame(startFallbackLoop);
-      };
-
-      if (videoRef.current) {
-        cameraInstanceRef.current = new WinCamera(videoRef.current, {
-          onFrame: async () => {
-            const now = performance.now();
-            if (now - lastSentTimeRef.current > 35) {
-              lastSentTimeRef.current = now;
-              if (videoRef.current && videoRef.current.readyState >= 2) {
-                try {
-                  await hands.send({ image: videoRef.current });
-                } catch (e) {
-                  console.warn('MediaPipe send error:', e);
-                }
-              }
-            }
-          }, width: 320, height: 240,
-        });
-        cameraInstanceRef.current.start().catch(async (e) => {
-          console.warn('MediaPipe camera start failed, fallback to manual stream:', e);
-          if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-            try {
-              const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
-              videoRef.current.srcObject = stream;
-              await videoRef.current.play();
-            } catch (streamError) {
-              console.warn('Manual getUserMedia fallback failed:', streamError);
-            }
-          }
-          startFallbackLoop();
-        });
-      }
-
-    };
-
-    runCamera();
-
-    return () => {
-      cancel = true;
-      if (cameraInstanceRef.current) {
-        try { cameraInstanceRef.current.stop(); } catch (e) {}
-      }
-      if (fallbackLoopId) cancelAnimationFrame(fallbackLoopId);
-    };
-  }, [isSdkLoaded]);
+      cameraInstanceRef.current.start().catch(() => {});
+    }
+    return () => { if (cameraInstanceRef.current) { try { cameraInstanceRef.current.stop(); } catch(e){} } };
+  }, [isSdkLoaded, isCardRevealed, isScratchFinished]);
 
   const btnStyle = (active) => ({
-    padding: '10px 18px', fontSize: '13px', borderRadius: '8px', border: '1px solid #c5a059', cursor: 'pointer',
+    padding: '8px 14px', fontSize: '11px', borderRadius: '8px', border: '1px solid #c5a059', cursor: 'pointer',
     background: active ? '#c5a059' : 'rgba(10, 5, 20, 0.8)', color: active ? '#000' : '#c5a059', fontWeight: 'bold'
   });
 
   return (
-    <div
-      onMouseMove={handleMouseMove}
-      onTouchMove={handleTouchMove}
-      onTouchStart={handleTouchMove}
-      style={{
-        position: 'fixed', inset: 0, width: '100vw', height: '100vh', backgroundColor: '#020104', overflow: 'hidden', zIndex: 99999,
-        touchAction: 'none', WebkitTouchCallout: 'none', WebkitUserSelect: 'none'
-      }}
-    >
+    <div onMouseMove={handleMouseMove} style={{ position: 'fixed', inset: 0, width: '100vw', height: '100vh', backgroundColor: '#020104', overflow: 'hidden', zIndex: 99999 }}>
       
       <style>{`
         @keyframes revealScroll {
-          0% {
-            transform: scale(0.4) rotateX(-35deg) translateY(50px);
-            opacity: 0;
-            filter: blur(15px);
-            box-shadow: 0 0 0px rgba(197, 160, 89, 0);
-          }
-          70% {
-            filter: blur(2px);
-          }
-          100% {
-            transform: scale(1) rotateX(0deg) translateY(0);
-            opacity: 1;
-            filter: blur(0px);
-            box-shadow: 0 0 60px rgba(197, 160, 89, 0.45);
-          }
+          0% { transform: scale(0.4) rotateX(-35deg) translateY(50px); opacity: 0; filter: blur(15px); }
+          100% { transform: scale(1) rotateX(0deg) translateY(0); opacity: 1; filter: blur(0px); box-shadow: 0 0 60px rgba(197, 160, 89, 0.45); }
         }
-
         @keyframes particleDissolve {
-          0% {
-            opacity: 1;
-            filter: blur(0px) brightness(1);
-            transform: scale(1) translateY(0px);
-            mask-image: linear-gradient(to bottom, white 100%, transparent 100%);
-            -webkit-mask-image: linear-gradient(to bottom, white 100%, transparent 100%);
-          }
-          30% {
-            filter: blur(2px) brightness(1.3) contrast(1.2);
-          }
-          100% {
-            opacity: 0;
-            filter: blur(12px) brightness(2) mix-blend-mode(plus-lighter);
-            transform: scale(0.92) translateY(-40px);
-            mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.1) 30%, transparent 100%);
-            -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.1) 30%, transparent 100%);
-          }
+          0% { opacity: 1; filter: blur(0px) brightness(1); transform: scale(1) translateY(0px); }
+          100% { opacity: 0; filter: blur(12px) brightness(2); transform: scale(0.92) translateY(-40px); }
         }
-
-        .fortune-window-enter {
-          animation: revealScroll 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-          transform-origin: center bottom;
-        }
-
-        .fortune-window-dissolve {
-          animation: particleDissolve 2.0s cubic-bezier(0.4, 0, 1, 1) forwards !important;
-          transform-origin: center top;
-        }
-
-        /* ✨ 新增：高級感呼吸燈特效 */
+        .fortune-window-enter { animation: revealScroll 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; transform-origin: center bottom; }
+        .fortune-window-dissolve { animation: particleDissolve 2.0s cubic-bezier(0.4, 0, 1, 1) forwards !important; transform-origin: center top; }
         @keyframes subtleGlow {
           0%, 100% { opacity: 0.8; box-shadow: 0 0 20px rgba(255,255,255,0.1); }
           50% { opacity: 1; box-shadow: 0 0 35px rgba(210,180,240,0.25); }
         }
-        .luxury-button {
-          animation: subtleGlow 3s infinite ease-in-out;
-          transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
-        }
-        .luxury-button:hover {
-          background: rgba(255, 255, 255, 0.9) !important;
-          color: #0d061f !important;
-          transform: scale(1.05) translateY(-2px);
-          box-shadow: 0 10px 30px rgba(230,210,255,0.4) !important;
-        }
+        .luxury-button { animation: subtleGlow 3s infinite ease-in-out; transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1); }
+        .luxury-button:hover { background: rgba(255, 255, 255, 0.9) !important; color: #0d061f !important; transform: scale(1.05) translateY(-2px); }
       `}</style>
 
-      {/* 🌌 背景：卡牌场景从初始即存在，UI 继续作为覆盖层显示 */}
+      {/* 🌌 背景：3D 卡牌漫天飛舞粒子場景 */}
       <div style={{ position: 'absolute', width: '100vw', height: '100vh', left: 0, top: 0, zIndex: 10 }}>
         <Canvas camera={{ position: [0, 0, 2.8], fov: 45 }}>
           <ambientLight intensity={1.5} />
           <pointLight position={[0, 3, 3]} intensity={2.5} color="#c5a059" />
+          
           <CosmicFluidBackground globalGesture={gestureState} pointerX={pointerRef.current} hideNebula={isScratchFinished} />
           <TransparentWaterRipple active={isScratchFinished} />
+
           <TarotDeck 
             globalGestureRef={globalGestureRef} 
             pointerRef={pointerRef} 
@@ -844,56 +701,46 @@ export default function TarotExperience() {
             onForceGestureChange={changeState}
             onCardRevealedChange={(isDone) => setIsCardRevealed(isDone)} 
             isScratchFinished={isScratchFinished}
-            activeCardIndex={30} 
+            activeCardIndex={15} 
           />
         </Canvas>
       </div>
 
-      {/* 🔮 高級感首頁 UI 疊加層（点按后隐藏） */}
+      {/* 🔮 高級感首頁 UI 疊加層 */}
       {!isExperienceStarted && (
         <div style={{
           position: 'absolute', inset: 0, zIndex: 100,
           display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-          background: 'rgba(3,1,7,0.96)',
+          background: 'linear-gradient(to bottom, rgba(3,1,7,0.3) 0%, rgba(5,2,12,0.65) 100%)',
           pointerEvents: 'auto', textAlign: 'center', padding: '0 20px'
         }}>
-          {/* 大標題：簡潔剔透白，帶有柔和的紫粉色霓虹陰影 */}
           <h1 style={{
-            fontSize: '52px', fontWeight: '300', color: '#ffffff',
-            letterSpacing: '12px', margin: '0 0 24px 0',
+            fontSize: 'clamp(28px, 6vw, 52px)', fontWeight: '300', color: '#ffffff',
+            letterSpacing: '8px', margin: '0 0 24px 0',
             textShadow: '0 0 15px rgba(255,255,255,0.3), 0 0 30px rgba(180,140,255,0.2)'
           }}>
             千絲萬縷 · 苗繡非遺卡牌
           </h1>
-
-          {/* 副標題：高雅淡紫色 */}
           <p style={{
-            fontSize: '18px', fontWeight: '300', color: '#d2c4e8',
-            letterSpacing: '6px', margin: '0 0 12px 0', opacity: 0.9,
-            textShadow: '0 2px 8px rgba(0,0,0,0.5)'
+            fontSize: 'clamp(14px, 3vw, 18px)', fontWeight: '300', color: '#d2c4e8',
+            letterSpacing: '4px', margin: '0 0 12px 0', opacity: 0.9
           }}>
             梭穿時空之經緯，絲連命運之圖騰
           </p>
           <p style={{
-            fontSize: '14px', fontWeight: '300', color: '#bcaad4',
-            letterSpacing: '4px', margin: '0 0 48px 0', opacity: 0.75
+            fontSize: 'clamp(11px, 2.5vw, 14px)', fontWeight: '300', color: '#bcaad4',
+            letterSpacing: '2px', margin: '0 0 48px 0', opacity: 0.75
           }}>
             點擊開啟非遺卡牌，凝結屬於你的今日好運與傳承啟示
           </p>
-
-          {/* 按鈕：半透明毛玻璃微光按鈕 */}
           <button 
             className="luxury-button"
-            onClick={() => {
-              setIsExperienceStarted(true);
-              changeState(GESTURES.CHAOS); // 進入後保持亂飛或你想要的預設手勢
-            }}
+            onClick={() => { setIsExperienceStarted(true); changeState(GESTURES.CHAOS); }}
             style={{
-              padding: '14px 44px', fontSize: '16px', fontWeight: '4px', letterSpacing: '4px',
+              padding: '14px 44px', fontSize: '15px', fontWeight: 'bold', letterSpacing: '2px',
               color: '#ffffff', background: 'rgba(255, 255, 255, 0.06)',
               border: '1px solid rgba(220, 200, 255, 0.35)', borderRadius: '30px',
-              backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-              cursor: 'pointer', outline: 'none'
+              backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', cursor: 'pointer'
             }}
           >
             ✨ 開啟今日好運 ✨
@@ -901,18 +748,17 @@ export default function TarotExperience() {
         </div>
       )}
 
-      {/* 以下為原專案內互動視窗、控制台和手勢底座（僅在進入體驗後或上傳牌池後正常運作） */}
       {isExperienceStarted && (
         <>
           {/* ✌️ 提示引導條 */}
           {isCardRevealed && !isScratchFinished && (
             <div onClick={triggerManualInteract} style={{
-              position: 'absolute', top: '15%', left: '50%', transform: 'translateX(-50%)', zIndex: 9990,
-              background: 'linear-gradient(90deg, rgba(197,160,89,0) 0%, rgba(197,160,89,0.85) 50%, rgba(197,160,89,0) 100%)',
-              color: '#fff', padding: '14px 50px', fontWeight: 'bold', fontSize: '15px', letterSpacing: '2px',
+              position: 'absolute', top: '15%', left: '5%', right: '5%', zIndex: 9990,
+              background: 'linear-gradient(90deg, rgba(197,160,89,0) 0%, rgba(197,160,89,0.9) 50%, rgba(197,160,89,0) 100%)',
+              color: '#fff', padding: '12px 20px', fontWeight: 'bold', fontSize: '13px', letterSpacing: '1px',
               textShadow: '0 2px 4px #000', cursor: 'pointer', textAlign: 'center', borderRadius: '4px'
             }}>
-              ✨ 卡牌已完全顯現！請直接保持雙指「✌️ 向下快速一揮」即可解鎖簽文（或直接點擊此條） ✨
+              ✨ 卡牌已顯現！保持雙指「✌️ 向下快速一揮」解鎖簽文（或直接點擊此處） ✨
             </div>
           )}
 
@@ -920,83 +766,75 @@ export default function TarotExperience() {
           {isScratchFinished && uploadedImages.length >= 24 && (
             <div style={{
               position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center',
-              backgroundColor: 'rgba(5, 2, 12, 0.45)', zIndex: 9995, backdropFilter: 'blur(4px)',
-              transition: 'all 0.8s ease', perspective: '1200px' 
+              backgroundColor: 'rgba(5, 2, 12, 0.45)', zIndex: 9995, backdropFilter: 'blur(4px)'
             }}>
               <div 
                 className={`fortune-window-enter ${isDissolving ? 'fortune-window-dissolve' : ''}`}
                 style={{
-                  width: '360px', height: '580px', borderRadius: '16px', border: '2px solid rgba(197, 160, 89, 0.8)',
-                  overflow: 'hidden', backgroundColor: 'rgba(17, 10, 31, 0.85)',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px', backdropFilter: 'blur(10px)',
-                  position: 'relative'
+                  width: 'min(340px, 90vw)', height: 'min(540px, 80vh)', borderRadius: '16px', border: '2px solid rgba(197, 160, 89, 0.8)',
+                  overflow: 'hidden', backgroundColor: 'rgba(17, 10, 31, 0.9)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px', backdropFilter: 'blur(10px)', position: 'relative'
                 }}
               >
-                {/* 金沙粒子背景 */}
-                {isDissolving && (
-                  <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle, rgba(197,160,89,0.15) 0%, transparent 70%)', pointerEvents: 'none' }} />
-                )}
-
-                <div style={{ color: '#c5a059', fontSize: '16px', fontWeight: 'bold', marginBottom: '12px', letterSpacing: '2px', textShadow: '0 0 8px rgba(197,160,89,0.5)' }}>✨ 靈卡對應簽文啟示 ✨</div>
+                {isDissolving && <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle, rgba(197,160,89,0.15) 0%, transparent 70%)', pointerEvents: 'none' }} />}
+                <div style={{ color: '#c5a059', fontSize: '15px', fontWeight: 'bold', marginBottom: '12px', letterSpacing: '1px' }}>✨ 靈卡對應簽文啟示 ✨</div>
                 <div style={{ width: '100%', flex: 1, borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(197,160,89,0.3)', background: '#0a0514' }}>
                   <img src={uploadedImages[12 + chosenIndex]} style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt="Fortune" />
                 </div>
-                <div style={{ color: 'rgba(197, 160, 89, 0.6)', fontSize: '11px', marginTop: '10px', letterSpacing: '1px' }}>
-                  {isDissolving ? "✨ 簽文靈力散去，正在歸位牌陣... ✨" : "⏳ 簽文已顯現，停留 5 秒後將化作星塵消散重置"}
+                <div style={{ color: 'rgba(197, 160, 89, 0.6)', fontSize: '11px', marginTop: '10px', textAlign: 'center' }}>
+                  {isDissolving ? "✨ 簽文靈力散去，正在歸位牌陣... ✨" : "⏳ 5 秒後將化作星塵自動消散重置"}
                 </div>
               </div>
             </div>
           )}
 
           {/* 底部按鈕底座 */}
-          <div style={{ position: 'absolute', bottom: '40px', left: '50%', transform: 'translateX(-50%)', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-            <div style={{ display: 'flex', gap: '12px', background: 'rgba(5, 2, 10, 0.95)', padding: '10px', borderRadius: '14px', border: '1px solid #c5a059' }}>
-              <button onClick={() => changeState(GESTURES.CHAOS)} style={btnStyle(gestureState === GESTURES.CHAOS)}>🌌 漫天亂飛</button>
-              <button onClick={() => changeState(GESTURES.FIST)} style={btnStyle(gestureState === GESTURES.FIST)}>✊ 萬磁王聚攏</button>
-              <button onClick={() => changeState(GESTURES.FIVE_FINGERS)} style={btnStyle(gestureState === GESTURES.FIVE_FINGERS)}>🖐 五指無限滾動</button>
-              <button onClick={() => changeState(GESTURES.INDEX_SINGLE)} style={btnStyle(gestureState === GESTURES.INDEX_SINGLE)}>☝️ 單指抽牌</button>
-              <button onClick={() => changeState(GESTURES.TWO_FINGERS_SCRATCH)} style={btnStyle(gestureState === GESTURES.TWO_FINGERS_SCRATCH)}>✌️ 雙指塗抹</button>
+          <div style={{ position: 'absolute', bottom: '20px', left: '10px', right: '10px', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(5, 2, 10, 0.9)', padding: '8px', borderRadius: '12px', border: '1px solid #c5a059', width: '100%', maxWidth: '480px' }}>
+              <button onClick={() => changeState(GESTURES.CHAOS)} style={btnStyle(gestureState === GESTURES.CHAOS)}>🌌 亂飛</button>
+              <button onClick={() => changeState(GESTURES.FIST)} style={btnStyle(gestureState === GESTURES.FIST)}>✊ 聚攏</button>
+              <button onClick={() => changeState(GESTURES.FIVE_FINGERS)} style={btnStyle(gestureState === GESTURES.FIVE_FINGERS)}>🖐 滾動</button>
+              <button onClick={() => changeState(GESTURES.INDEX_SINGLE)} style={btnStyle(gestureState === GESTURES.INDEX_SINGLE)}>☝️ 抽牌</button>
+              <button onClick={() => changeState(GESTURES.TWO_FINGERS_SCRATCH)} style={btnStyle(gestureState === GESTURES.TWO_FINGERS_SCRATCH)}>✌️ 塗抹</button>
             </div>
-            <div style={{ fontSize: '12px', color: '#c5a059', fontWeight: 'bold', textShadow: '0 2px 4px rgba(0,0,0,0.8)', letterSpacing: '1px' }}>
-              💡 刮開後，保持雙指「✌️ 向下快速一揮」解鎖簽文。簽文會自動停留 5 秒後化作金塵消散歸位！
+            <div style={{ fontSize: '10px', color: '#c5a059', textAlign: 'center', textShadow: '0 1px 3px #000', padding: '0 10px' }}>
+              💡 提示：手勢不便時，可直接點擊相應按鈕進行體驗切換
             </div>
           </div>
         </>
       )}
 
-      {/* 相機視窗（始終掛載或根據需要放置） */}
+      {/* 相機視窗 */}
       {isSdkLoaded && (
-        <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 9999, width: '220px', height: '165px', borderRadius: '12px', overflow: 'hidden', border: '2px solid #c5a059', transform: 'scaleX(-1)', background: '#000' }}>
-          <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted autoPlay playsInline />
+        <div style={{ position: 'absolute', top: '15px', right: '15px', zIndex: 9999, width: '100px', height: '75px', borderRadius: '8px', overflow: 'hidden', border: '1.5px solid #c5a059', transform: 'scaleX(-1)', background: '#000' }}>
+          <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
           <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} width={320} height={240} />
         </div>
       )}
 
       {/* 懸浮控制台 */}
-      <div style={{ position: 'absolute', top: '205px', right: '20px', zIndex: 9999, background: 'rgba(15, 8, 28, 0.95)', border: '1px solid #c5a059', padding: '14px', borderRadius: '10px', width: '220px', color: '#c5a059', boxShadow: '0 6px 30px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        <div style={{ position: 'absolute', top: '-14px', right: '10px', zIndex: 10000 }}>
-          <button onClick={() => setIsMinimized(!isMinimized)} style={{ background: '#c5a059', color: '#0a0414', border: '2px solid #0a0414', borderRadius: '20px', padding: '2px 10px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.5)' }}>
-            {isMinimized ? "➕ 展開控制台" : "➖ 最小化隱藏"}
+      <div style={{ position: 'absolute', top: '100px', right: '15px', zIndex: 9999, background: 'rgba(15, 8, 28, 0.95)', border: '1px solid #c5a059', padding: '10px', borderRadius: '8px', width: '160px', color: '#c5a059', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={() => setIsMinimized(!isMinimized)} style={{ background: '#c5a059', color: '#0a0414', border: 'none', borderRadius: '4px', padding: '2px 6px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
+            {isMinimized ? "➕ 展開" : "➖ 隱藏"}
           </button>
         </div>
         {!isMinimized && (
           <>
-            <div style={{ fontSize: '12px', fontWeight: 'bold', textAlign: 'center', borderBottom: '1px solid rgba(197,160,89,0.3)', paddingBottom: '6px', marginTop: '6px' }}>🖼️ 24張配對簽文池 ({uploadedImages.length}/24)</div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <label style={{ flex: 1, background: uploadedImages.length >= 24 ? '#444' : '#c5a059', color: uploadedImages.length >= 24 ? '#888' : '#000', padding: '6px 0', borderRadius: '6px', textAlign: 'center', cursor: uploadedImages.length >= 24 ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
-                {uploadedImages.length >= 24 ? "牌池已備齊" : "➕ 上傳多圖"}
+            <div style={{ fontSize: '10px', fontWeight: 'bold', textAlign: 'center' }}>🖼️ 簽文池 ({uploadedImages.length}/24)</div>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              <label style={{ flex: 1, background: uploadedImages.length >= 24 ? '#444' : '#c5a059', color: uploadedImages.length >= 24 ? '#888' : '#000', padding: '4px 0', borderRadius: '4px', textAlign: 'center', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}>
+                {uploadedImages.length >= 24 ? "已滿" : "➕ 上傳"}
                 <input type="file" accept="image/*" multiple disabled={uploadedImages.length >= 24} onChange={handleMultipleImagesUpload} style={{ display: 'none' }} />
               </label>
-              {uploadedImages.length > 0 && <button onClick={clearImagesPool} style={{ background: 'rgba(255,0,0,0.15)', color: '#ff6b6b', border: '1px solid #ff6b6b', borderRadius: '6px', padding: '0 8px', fontSize: '11px', cursor: 'pointer' }}>清空</button>}
+              {uploadedImages.length > 0 && <button onClick={clearImagesPool} style={{ background: 'rgba(255,0,0,0.1)', color: '#ff6b6b', border: '1px solid #ff6b6b', borderRadius: '4px', padding: '0 4px', fontSize: '10px', cursor: 'pointer' }}>清空</button>}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', maxHeight: '120px', overflowY: 'auto', background: 'rgba(0,0,0,0.4)', padding: '6px', borderRadius: '6px', border: '1px solid rgba(197,160,89,0.15)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px', maxHeight: '80px', overflowY: 'auto', background: 'rgba(0,0,0,0.4)', padding: '4px', borderRadius: '4px' }}>
               {uploadedImages.map((url, index) => (
-                <div key={index} style={{ width: '100%', aspectRatio: '1/1', borderRadius: '4px', overflow: 'hidden', border: index >= 12 ? '1px dashed #c5a059' : '1px solid rgba(255,255,255,0.2)', position: 'relative' }}>
+                <div key={index} style={{ width: '100%', aspectRatio: '1/1', borderRadius: '2px', overflow: 'hidden', border: index >= 12 ? '1px dashed #c5a059' : '1px solid rgba(255,255,255,0.2)' }}>
                   <img src={url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="slot" />
-                  <span style={{ position: 'absolute', bottom: 0, left: 0, background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '8px', padding: '0 2px' }}>{index >= 12 ? `签${index-11}` : `牌${index+1}`}</span>
                 </div>
               ))}
-              {uploadedImages.length === 0 && <div style={{ gridColumn: 'span 4', fontSize: '10px', color: '#777', textAlign: 'center', padding: '20px 0' }}>請選取並上傳滿 24 張配對圖</div>}
             </div>
           </>
         )}
