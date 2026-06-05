@@ -451,6 +451,8 @@ export default function TarotExperience() {
   const [isCardRevealed, setIsCardRevealed] = useState(false);     
   const [isScratchFinished, setIsScratchFinished] = useState(false); 
   const [chosenIndex, setChosenIndex] = useState(0);               
+  const isCardRevealedRef = useRef(false);
+  const isScratchFinishedRef = useRef(false);
 
   // ✨ 新增：用於控制首頁進入主系統的狀態
   const [isExperienceStarted, setIsExperienceStarted] = useState(false);
@@ -471,6 +473,9 @@ export default function TarotExperience() {
   const changeState = (nextG) => {
     if (globalGestureRef.current !== nextG) { globalGestureRef.current = nextG; setGestureState(nextG); }
   };
+
+  useEffect(() => { isCardRevealedRef.current = isCardRevealed; }, [isCardRevealed]);
+  useEffect(() => { isScratchFinishedRef.current = isScratchFinished; }, [isScratchFinished]);
 
   const handleMouseMove = (e) => { pointerRef.current = (e.clientX / window.innerWidth) * 2 - 1; };
   const handleTouchMove = (e) => {
@@ -610,7 +615,7 @@ export default function TarotExperience() {
           const counts = gestureHistory.current.reduce((acc, g) => { acc[g] = (acc[g] || 0) + 1; return acc; }, {});
           const mostFrequentGesture = Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
 
-          if (isCardRevealed && !isScratchFinished) {
+          if (isCardRevealedRef.current && !isScratchFinishedRef.current) {
             const extendedCount = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length;
             if (extendedCount >= 2 && deltaFingerY > 0.015) {
               setIsScratchFinished(true);
@@ -618,7 +623,7 @@ export default function TarotExperience() {
           }
 
           if (counts[mostFrequentGesture] >= 3) {
-            if (mostFrequentGesture === GESTURES.FIVE_FINGERS && isScratchFinished) {
+            if (mostFrequentGesture === GESTURES.FIVE_FINGERS && isScratchFinishedRef.current) {
               const currentHandX = landmarks[0].x;
               if (currentHandX > 0.6) {
                 setIsCardRevealed(false);
@@ -630,7 +635,7 @@ export default function TarotExperience() {
             else { if (mostFrequentGesture === GESTURES.FIST) hasEverFisted.current = true; changeState(mostFrequentGesture); }
           }
 
-          if (globalGestureRef.current === GESTURES.INDEX_SINGLE && lastGestureRef.current !== GESTURES.INDEX_SINGLE && !isCardRevealed) {
+          if (globalGestureRef.current === GESTURES.INDEX_SINGLE && lastGestureRef.current !== GESTURES.INDEX_SINGLE && !isCardRevealedRef.current) {
             const pool = uploadedImagesRef.current;
             if (pool && pool.length >= 12) {
               const randIndex = Math.floor(Math.random() * 12);
@@ -646,7 +651,7 @@ export default function TarotExperience() {
           });
 
         } else {
-          if (isCardRevealed && !isScratchFinished) {
+          if (isCardRevealedRef.current && !isScratchFinishedRef.current) {
             setIsScratchFinished(true);
           }
           if (currentTime > scratchLockExpiryRef.current && globalGestureRef.current !== GESTURES.TWO_FINGERS_SCRATCH) {
@@ -667,9 +672,13 @@ export default function TarotExperience() {
         videoEl.style.objectFit = 'cover';
 
         videoEl.onloadedmetadata = () => {
+          videoEl.style.visibility = 'visible';
+          videoEl.style.backgroundColor = 'transparent';
           videoEl.play().catch((e) => { console.warn('Video play failed on loadedmetadata:', e); });
         };
         videoEl.oncanplay = () => {
+          videoEl.style.visibility = 'visible';
+          videoEl.style.backgroundColor = 'transparent';
           videoEl.play().catch((e) => { console.warn('Video play failed on canplay:', e); });
         };
 
@@ -737,7 +746,7 @@ export default function TarotExperience() {
       }
       if (fallbackLoopId) cancelAnimationFrame(fallbackLoopId);
     };
-  }, [isSdkLoaded, isCardRevealed, isScratchFinished]);
+  }, [isSdkLoaded]);
 
   const btnStyle = (active) => ({
     padding: '10px 18px', fontSize: '13px', borderRadius: '8px', border: '1px solid #c5a059', cursor: 'pointer',
